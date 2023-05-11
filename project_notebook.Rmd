@@ -1,0 +1,1558 @@
+---
+title: "Data summary and statistical analysis notebook"
+author: "Subeida Hassan"
+date: "26th August 2022"
+output:
+  html_document:
+    toc: yes
+    toc_depth: '3'
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_notebook:
+    self_contained: yes
+    highlight: textmate
+    toc: yes
+    toc_depth: 3
+    number_sections: no
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  comment = "",
+  results = "hold",
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 4,
+  fig.height = 2.6,
+  fig.align = "center"
+) 
+```
+
+Loading required packages
+```{r, message = FALSE,comments=FALSE, warning = FALSE}
+#importing libraries
+library("tidyverse")
+library(here)
+library(ggrepel)
+library(lme4)
+library(lmerTest)
+library(sjstats)
+library(emmeans)
+library(MuMIn)
+library(sjPlot)
+library(sjmisc)
+library("car")
+```
+
+# **Preliminary analysis**
+Reading data into data frame
+```{r}
+#Ethnicity data set
+ethnicity_data <- read_delim(file = here("data", "qry_Ethnic_origin_2.txt"), delim = ",")
+head(ethnicity_data) #previewing first 5 lines
+
+#Mark data set
+mark_data <- read_delim(file = here("data", "qry_Mark_Data_2.txt"), delim = ",")
+head(mark_data) #previewing first 5 lines
+```
+
+## Ethnicity Dataset
+### Cleaning 
+```{r}
+#checking for missing data
+ethnicity_data %>% sapply(function(x) sum(is.na(x)) )
+
+#removing missing data
+clean_ethnicity_data <- ethnicity_data %>%
+  drop_na()
+
+#checking if na's removed.
+clean_ethnicity_data %>% sapply(function(x) sum(is.na(x)))
+
+```
+
+```{r}
+#checking for duplicates & removing
+length(unique(clean_ethnicity_data$ID2)) #number of students in ethnic data
+length(unique(clean_ethnicity_data$ID2)) == nrow(clean_ethnicity_data) #returns TRUE as no duplicates
+
+```
+
+```{r}
+#renaming columns & saving in new data frame 
+clean_ethnicity_data %>%
+  rename(
+    Gender = GENDER_DESC,
+    Ethnicity = ETHNIC_ORIGIN_DESC
+    ) -> clean_ethnicity_data
+```
+
+```{r}
+#Computing percentage of students belonging to each gender/ethnic group
+
+clean_ethnicity_data %>%
+  group_by(Gender) %>%
+  tally () %>%
+  mutate(freq = (n / sum(n))*100) %>%
+  mutate(percentage = scales::label_percent()(n / sum(n))) %>%
+  rename("Number of students" = n)
+
+#Categorising into man vs woman other levels to little cases
+#remove non binary, other & prefer not to say
+clean_ethnicity_data<-clean_ethnicity_data[!(clean_ethnicity_data$Gender=="Non-Binary" | clean_ethnicity_data$Gender=="Prefer not to say" | clean_ethnicity_data$Gender=="Other") ,]
+
+
+#check levels of ethnicites
+clean_ethnicity_data %>%
+  group_by(Ethnicity) %>%
+  tally () %>%
+  mutate(freq = (n / sum(n))*100) %>%
+  mutate(percentage = scales::label_percent()(n / sum(n)))
+```
+
+I will categorise ethnicity differently depending on research question. Firstly, I will begin with white vs other.
+
+```{r}
+#duplicating data set at this point as will categorise differently for second research question
+clean_ethnicity_data -> clean_ethnicity_data2
+```
+
+```{r}
+#categorising ethnicities into white vs non white
+#rename all white columns- white.
+#rename all other columns other.
+
+clean_ethnicity_data[clean_ethnicity_data == "White - British"] <- "White"
+clean_ethnicity_data[clean_ethnicity_data == "White - Irish"] <- "White"
+clean_ethnicity_data[clean_ethnicity_data == "White - Scottish"] <- "White"
+clean_ethnicity_data[clean_ethnicity_data == "Other White Background"] <- "White"
+
+clean_ethnicity_data[clean_ethnicity_data == "Arab"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Asian Or Asian British - Bangladeshi"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Asian Or Asian British - Indian"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Asian Or Asian British - Pakistani"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Black Or Black British - African"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Black Or Black British - Caribbean"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Chinese"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Gypsy or Traveller"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Mixed - White And Asian"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Mixed - White And Black African"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Mixed - White And Black Caribbean"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Other Asian Background"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Other Black Background"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Other Ethnic Background"] <- "BAME"
+clean_ethnicity_data[clean_ethnicity_data == "Other Mixed Background"] <- "BAME"
+
+#remove not known,no information & info refused- as could be any ethnicity.
+
+clean_ethnicity_data<-clean_ethnicity_data[!(clean_ethnicity_data$Ethnicity=="Information Refused" | clean_ethnicity_data$Ethnicity=="Information Refused - OBSOLETE VALUE" | clean_ethnicity_data$Ethnicity=="No Information" | clean_ethnicity_data$Ethnicity=="Not Known") ,]
+
+```
+
+```{r}
+#changing numerical variables to factors. 
+clean_ethnicity_data %>%
+  mutate_at(vars(Gender, Ethnicity), list(factor)) -> clean_ethnicity_data
+
+summary(clean_ethnicity_data)
+
+```
+
+### Visualisation
+```{r}
+#Ethnicity
+#Visualising number of students in each ethnicity category 
+
+ethnicity_data %>%
+  group_by(ETHNIC_ORIGIN_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(freq = (counts / sum(counts))*100) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(., aes(x = ETHNIC_ORIGIN_DESC, y = counts)) +
+  geom_bar(fill = "#0073C2FF", stat = "identity") +
+  #geom_text(aes(label = percentage), angle = 60) +
+  theme(axis.text.x = element_text(angle = 60, 
+                                   hjust = 1)) +
+  ggtitle("Number of students in each ethnic category") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Ethnicity') +
+  ylab('Number of students') 
+```
+
+```{r}
+#Ethnicity
+#Percentage of students belonging to each ethnicity after categorisation
+clean_ethnicity_data %>%
+  group_by(Ethnicity) %>%
+  tally () %>%
+  mutate(freq = scales::label_percent()(n / sum(n)))  %>%
+  ggplot( ., aes(x="", y=freq, fill=Ethnicity)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  theme_void() +
+  geom_text(aes(label = freq), color = "white", position = position_stack(vjust = 0.5), size = 4) +
+  scale_fill_brewer(palette = "Paired") +
+  ggtitle("Percentage of students in each ethnic category") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+```{r}
+#GENDER
+#Percentage of students belonging to each gender category
+ethnicity_data %>%
+  group_by(GENDER_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(freq = (counts / sum(counts))*100) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(., aes(x = GENDER_DESC, y = counts, fill=GENDER_DESC)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = percentage), vjust = -0.5) + 
+  scale_fill_brewer(palette = "Paired") +
+  ggtitle("Percentage of students in each gender category") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Gender') +
+  ylab('Number of students') +
+  guides(fill = guide_legend(title = "Gender Description ")) 
+```
+
+```{r}
+#GENDER
+#Percentage of students belonging to each gender after categorisation
+clean_ethnicity_data %>%
+  group_by(Gender) %>%
+  tally () %>%
+  mutate(freq = scales::label_percent()(n / sum(n))) %>%
+  ggplot( ., aes(x="", y=freq, fill=Gender)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  theme_void() +
+  geom_text(aes(label = freq), color = "white", position = position_stack(vjust = 0.5), size = 5) +
+  scale_fill_brewer(palette = "Set2") +
+  ggtitle("Percentage of students in each gender category") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+## Mark Dataset
+### Cleaning 
+```{r}
+#summary of mark data
+summary(mark_data)
+```
+
+```{r}
+#checking for missing data?
+mark_data %>% sapply(function(x) sum(is.na(x)) )
+
+#remove missing data? - decided to not remove missing data as only missing data in programme school, module school and part_end_date and module mark- i am not directly assessing these columns- so doesn't matter too much. If looking at effect of school on mark may need to consider removing missing values. 
+
+#checking for duplicates
+length(unique(mark_data$ID2)) #number of students in marks data- same as ethnicity data set
+length(unique(mark_data$ID2)) == nrow(mark_data) #returns FALSE as there are duplicates
+
+#removing duplicate rows- 1,114,911 rows once duplicates removed.
+distinct(mark_data) -> clean_mark_data
+```
+
+```{r}
+#changing variables to factors.
+clean_mark_data %>%
+  mutate_at(vars(PROGRAMME_SCHOOL, PROGRAMME_OWNER, PROGRAMME_LEVEL_DESC, PROGRAMME_PART, PART_END_DATE, MODULE_OWNER, MODULE_SCHOOL, MODULE_CODE, MODULE_LONG_TITLE, INCLUDE_MARK_DESC, ASSESSMENT_COMPONENT_CODE, ASSESSMENT_COMPONENT_TITLE, ASSESSMENT_COMPONENT_TYPE_DESC), list(factor)) -> clean_mark_data
+```
+
+
+### Visualisation
+```{r}
+#how many years of data?
+clean_mark_data %>%
+  group_by(STUDENT_START_YEAR) %>%
+  count ()
+#data spans 2007-2022
+#Only interested in the last 5 years, as before 2016, a lot less data/outdated.
+#mark data only has a single students results for 2022, therefore, only one gender, one ethnicity.
+#This is not good enough for any analysis on students performance, will cause serious over generalisation.
+
+
+#remove data before 2017 & after 2021
+clean_mark_data %>%
+  filter(STUDENT_START_YEAR >= 17 & STUDENT_START_YEAR <= 21) ->clean_mark_data
+
+#Visualisation of students in each year group.
+clean_mark_data %>%
+  group_by(STUDENT_START_YEAR) %>% 
+  count() %>%
+  ggplot(., aes(x = STUDENT_START_YEAR, y= n)) + 
+  geom_bar(stat = "identity", fill = "darkgreen", size = 2.5) +
+  geom_text(aes(label = n), vjust = -0.5) +
+  ggtitle("Number of students in each year (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Student Start Year') +
+  ylab('Number of students')  
+```
+
+```{r}
+#How many assessment types in data set?
+clean_mark_data %>%
+  group_by(ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  count()
+#Coursework, Exam, In-Class Test, In-Dept Exam, Laboratory Test
+
+#types of assessment types & relative percentages of students who did the AT
+clean_mark_data %>%
+  group_by(ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(freq = (counts / sum(counts))) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot( ., aes(x="", y=freq, fill=ASSESSMENT_COMPONENT_TYPE_DESC)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=180) +
+  theme_void() +
+  geom_text(aes(label = percentage), position = position_stack(vjust = 0.5), size = 3) +
+  scale_fill_brewer(palette = "Spectral") +
+  guides(fill = guide_legend(title = "Assessment type")) +
+  ggtitle("Percentage of students in each assessment type") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+```{r}
+#categorise into exam and cw only. 
+#So- exam = Exam, In-Dept Exam, cw = CW, In-Class Test and Lab Test
+
+clean_mark_data[clean_mark_data == "In-Dept Exam"] <- "Exam"
+clean_mark_data[clean_mark_data == "In-Class Test"] <- "Coursework"
+clean_mark_data[clean_mark_data == "Laboratory Test"] <- "Coursework"
+
+#dropping levels 
+#in dept exam, in class test and lab test
+droplevels(clean_mark_data$ASSESSMENT_COMPONENT_TYPE_DESC) -> clean_mark_data$ASSESSMENT_COMPONENT_TYPE_DESC
+
+summary(clean_mark_data$ASSESSMENT_COMPONENT_TYPE_DESC)
+```
+
+```{r}
+#visualising percentage of students under each assessment type after categorisation
+clean_mark_data %>%
+  group_by(ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(freq = (counts / sum(counts))) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot( ., aes(x="", y=freq, fill=ASSESSMENT_COMPONENT_TYPE_DESC)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  theme_void() +
+  geom_text(aes(label = percentage), position = position_stack(vjust = 0.5), size = 3) +
+  scale_fill_brewer(palette = "Spectral") +
+  guides(fill = guide_legend(title = "Assessment type")) +
+  ggtitle("Percentage of students in each assessment type") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+```{r}
+#cleaning programme part
+summary(clean_mark_data$PROGRAMME_PART)
+
+#visualise number of students in each programme part
+ggplot(clean_mark_data, aes(x = PROGRAMME_PART)) + 
+  geom_bar(fill = "blue") +
+theme(axis.text.x = element_text(angle = 60, 
+                                   hjust = 1)) +
+  ggtitle("Number of students in each part") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Programme Part') +
+  ylab('Number of students')  
+```
+As can be seen from the above table- there are many parts- but in this study i am only interested in UG and PG students, so will remove all cases where not A, B, C, D, F, and T. 
+```{r}
+#There are 16 parts- want to keep 6 and remove 10
+
+subset(clean_mark_data, PROGRAMME_PART != "G" & PROGRAMME_PART != "I" & PROGRAMME_PART != "R" & PROGRAMME_PART != "R0" & PROGRAMME_PART != "R1" & PROGRAMME_PART != "R2" & PROGRAMME_PART != "RT" & PROGRAMME_PART != "TO" & PROGRAMME_PART != "TR" & PROGRAMME_PART != "TX") -> clean_mark_data
+
+```
+
+```{r}
+#dropping levels with 0 
+summary(clean_mark_data$PROGRAMME_PART)
+
+droplevels(clean_mark_data$PROGRAMME_PART) -> clean_mark_data$PROGRAMME_PART
+
+summary(clean_mark_data$PROGRAMME_PART)
+```
+
+```{r}
+#visualise number of students in each programme parts we are interested in
+ggplot(clean_mark_data, aes(x = PROGRAMME_PART)) + 
+  geom_bar(fill = "blue") +
+theme(axis.text.x = element_text(angle = 60, 
+                                   hjust = 1)) +
+   ggtitle("Number of students in each part") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Programme Part') +
+  ylab('Number of students') 
+```
+
+```{r}
+#distribution of marks in cleaned mark dataset
+hist(clean_mark_data$MARK, 
+     main="Histogram of mark (2017-2021)",
+xlab="Mark",
+xlim=c(0,100),
+col="darkmagenta")
+#seems close to normal distribution
+```
+
+```{r}
+#from above looks like there are marks below 0
+clean_mark_data %>%
+  group_by(MARK) %>%
+  tally ()
+#REMOVE MARKS BELOW, ONE ENTRY OF -3. 
+filter(clean_mark_data, MARK > 0) -> clean_mark_data
+#now 870021 rows
+```
+
+# **Joining the two datasets**
+```{r}
+#JOIN ETHNIC DATA AND MARK DATA
+inner_join(clean_ethnicity_data, clean_mark_data) -> full_data
+print(distinct(full_data))
+```
+
+# **Research Question 1**
+# **1.	What affect does the assessment type have on the student performance and the BAME awarding gap?**
+
+This is a multi-leveled question. I will began by looking at the effect of ethnicity and assessment type separately on student performance.
+
+## 1.1 Effect of Ethnicity on student performance
+
+Variance in marks for white vs other
+```{r}
+boxplot(MARK~Ethnicity, data = full_data)
+```
+looks like a lot of data points are outliers- but data is over 5 years and we are mostly interested in top grades so will filter these out later. 
+
+Analysis of average Marks of White vs BAME/Other students (2017-2021)
+
+Below is bar chart showing of effect of ethnicity on mean mark between 2017-2021
+
+```{r}
+full_data %>%
+  select(Ethnicity, MARK) %>%
+  group_by(Ethnicity) %>%
+  tally(mean(MARK))  %>%
+  rename(Average_mark = n) %>%
+  ggplot(aes(x=Ethnicity, y = Average_mark, fill =Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Paired") +
+  geom_text(aes(label = round(Average_mark, 2)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Average Test Scores by Ethnicity between 2017-2021") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab('Average Mark') 
+
+```
+Next, I wanted to see the affect of ethnicity on average mark each year between 2017-2021.
+This table below shows the gap in average grade in white vs Bame students is reducing over the years. This reduction is very small changing by just 1.4 over 5 years. 
+```{r}
+#White vs non white grades table like in screenshot in report
+full_data %>%
+  select(INSTANCE_ACADEMIC_YEAR, Ethnicity,MARK) %>%
+  group_by(INSTANCE_ACADEMIC_YEAR, Ethnicity) %>%
+  tally(mean(MARK)) %>%
+  rename(Average_mark = n) %>%
+  spread(key = Ethnicity, value = Average_mark) %>%
+  mutate(Gap = White - BAME)
+```
+
+Below is a line graph to visualise the above table. This is showing gap is reducing, but both white and bame students average grade seems to be reducing over the years. 
+```{r}
+full_data %>%
+  select(INSTANCE_ACADEMIC_YEAR, Ethnicity,MARK) %>%
+  group_by(INSTANCE_ACADEMIC_YEAR, Ethnicity) %>%
+  tally(mean(MARK)) %>%
+  rename(Average_mark = n) %>%
+  #spread(key = Ethnicity, value = Average_mark) %>%
+ # mutate(Gap = White - BAME) %>%
+  ggplot(aes(x = INSTANCE_ACADEMIC_YEAR, y = Average_mark, col = Ethnicity)) +
+  geom_line() +
+  geom_point() +
+  ggtitle("Average grade for white vs BAME students (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Academic Year') +
+  ylab('Average Mark') +
+  labs(col='Ethnicity') 
+```
+### Analysis of BAME Awarding Gap (2017-2021)
+The below bar graph is showing percentage of white vs BAME students achieving top degree (2017-2021)
+NOTE- for methodology/results
+I grouped by ID2 first in order to calculate average grade for each student..then i filtered for students who got an average grade above 60
+Then grouped by ethnicity
+This is important as the data is not important, if not grouped by ID2 results would show any student who got above 60 for at least 1 assessment
+
+```{r}
+full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(Average_mark >=60) %>%
+  select(ID2, Ethnicity, Average_mark) %>%
+  distinct() %>%
+  group_by(Ethnicity) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=Ethnicity, y = counts, fill =Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_text(aes(label = percentage), position = position_stack(vjust = 1.1), size = 3)  +
+  ggtitle("Percentage of white vs BAME students achieving top degree (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab('Number of students')
+```
+
+Below graph shows difference between number of White vs BAME students achieving top degree (BAME awarding gap) is consistent over years 2017-2021
+```{r}
+#Visualising percentage of white vs BAME students achieving top degree each year (2017-2021)
+full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(Average_mark >=60) %>%
+  select(ID2, Ethnicity, Average_mark, INSTANCE_ACADEMIC_YEAR) %>%
+  distinct() %>%
+  group_by(INSTANCE_ACADEMIC_YEAR, Ethnicity) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=INSTANCE_ACADEMIC_YEAR, y = counts, fill =Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_text(aes(label = percentage), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Percentage of white vs BAME students achieving top degree each year (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Academic Year') +
+  ylab('Number of students')
+```
+Problem with above graphs is that there are a lot more white students in the university, and therefore it is a given that more white students are achieving top degrees. 
+So instead, this graph clearly shows distribution of degree outcomes instead.The following graph makes the results clearer for interpretation/comparisons.
+For example here, 37% of white students get a first in comparison to only 21.9% of BAME students.
+
+```{r}
+#visualisation of distribution of degree outcomes
+full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  mutate(Grade = case_when(Average_mark >= 70 ~ "First Class",
+                           Average_mark >= 60 ~ "Upper Second Class Honour",
+                           Average_mark >= 50 ~ "Lower Second Class Honour",
+                           Average_mark >= 40 ~ "Third class/pass",
+                           Average_mark < 40 ~ "Fail")) %>%
+  group_by(Ethnicity, Grade) %>%
+  summarise(counts = n()) %>%
+  mutate(freq = (counts / sum(counts))) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=Ethnicity, y = freq, fill =Grade)) +
+  geom_bar(stat = 'identity') + 
+  coord_flip() +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_text_repel(aes(label = percentage), position = position_stack(vjust = 0.5), size = 2.5) +
+  ggtitle("Distribution of degree outcomes by ethnic group (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Frequency", fill = "Degree Classification")
+```
+
+## 1.2 Effect of assessment type on student performance
+
+I have began by visualising the average mark for each assessment type (2017-2021)
+```{r}
+#Visualisation of effect of assessment type on average mark between 2017-2021
+full_data %>%
+  select(ASSESSMENT_COMPONENT_TYPE_DESC, MARK) %>%
+  group_by(ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  tally(mean(MARK))  %>%
+  rename(Average_mark = n) %>%
+   #spread(key = Ethnicity, value = Average_mark) %>%
+  ggplot(aes(x=ASSESSMENT_COMPONENT_TYPE_DESC, y = Average_mark, fill = ASSESSMENT_COMPONENT_TYPE_DESC)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Pastel2") +
+  geom_text(aes(label = round(Average_mark, 2)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Average Mark for Coursework vs Exam (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Assessment Type') +
+  ylab('Average Mark') +
+  guides(fill = guide_legend(title = "Assessment type")) 
+```
+This bar graph above is showing that students overall perform much better in coursework than exams...but does ethnicity have an effect on this?? Will look at this later
+
+Next i wanted to evaluate the average yearly mark dependent on assessment type. This shows every year the average grade is much bigger for cw type assessments vs exams. Essentially students perform much better in coursework type assessments in comparison to exams. 
+```{r}
+full_data %>%
+  select(INSTANCE_ACADEMIC_YEAR, ASSESSMENT_COMPONENT_TYPE_DESC,MARK) %>%
+  group_by(INSTANCE_ACADEMIC_YEAR, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  tally(mean(MARK)) %>%
+  rename(Average_mark = n) %>%
+  spread(key = ASSESSMENT_COMPONENT_TYPE_DESC, value = Average_mark) %>%
+  mutate(Gap = Coursework - Exam)
+```
+
+This line graph below shows many things:
+1. students perform much better in cw vs exams
+2. Average cw mark is reducing over the years
+3. Average exam mark is increasing over the years, but goes down in 2021
+4. assessment awarding gap is reducing. 
+```{r}
+#Visualisation of above
+full_data %>%
+  select(INSTANCE_ACADEMIC_YEAR, ASSESSMENT_COMPONENT_TYPE_DESC,MARK) %>%
+  group_by(INSTANCE_ACADEMIC_YEAR, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  tally(mean(MARK)) %>%
+  rename(Average_mark = n) %>%
+  #spread(key = ASSESSMENT_COMPONENT_TYPE_DESC, value = Average_mark) %>%
+  #mutate(Gap = Coursework - Exam) %>%
+  ggplot(aes(x = INSTANCE_ACADEMIC_YEAR, y = Average_mark, col = ASSESSMENT_COMPONENT_TYPE_DESC)) +
+  geom_line() +
+  geom_point() +
+  ggtitle("Average yearly Mark for Coursework vs Exam (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Academic Year') +
+  ylab('Average Mark') +
+  labs(col='Assessment Type') 
+
+```
+
+Analysis of effect of assessment type on achieving top degree(2017-2022)
+
+What about effect of assessment type on top degrees?
+This bar chart shows the average number of students that did cw vs exam in all students that achieved a top degree. 
+
+```{r}
+#average percentage of students who did cw vs exam to get first
+full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(Average_mark >=60) %>%
+  select(ID2, ASSESSMENT_COMPONENT_TYPE_DESC, Average_mark) %>%
+  distinct() %>%
+  group_by(ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=ASSESSMENT_COMPONENT_TYPE_DESC, y = counts, fill = ASSESSMENT_COMPONENT_TYPE_DESC)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Pastel2") +
+  geom_text(aes(label = percentage), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Percentage of students doing cw vs exam for top degree") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Assessment Type') +
+  ylab('Number of students') +
+  guides(fill = guide_legend(title = "Assessment type")) 
+```
+
+This bar chart is showing yearly average percentage of students who did cw vs exam to get first
+This results are pretty consistent over the years. Has reduced slightly over the years.
+Gap in 21 looks pretty small, but number of students in this year was lower. 
+
+```{r}
+#percentage of students who did cw vs exam to get first (2017-2022)
+  full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(Average_mark >=60) %>%
+  select(ID2, ASSESSMENT_COMPONENT_TYPE_DESC, Average_mark, INSTANCE_ACADEMIC_YEAR) %>%
+  distinct() %>%
+  group_by(INSTANCE_ACADEMIC_YEAR, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=INSTANCE_ACADEMIC_YEAR, y = counts, fill =ASSESSMENT_COMPONENT_TYPE_DESC)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_text(aes(label = percentage), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Percentage of students doing cw vs exam for top degree each year") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Academic Year') +
+  ylab('Number of students') +
+  guides(fill = guide_legend(title = "Assessment type")) 
+```
+
+## 1.3 Analysing effect of assessment type on student performance and BAME awarding gap
+
+```{r}
+#Checking there is a reasonable number of white/others in each assessment type. 
+full_data %>%
+  select(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  group_by(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  tally()
+```
+First i want to look at affect of assessment type on student performance(White vs Other)
+This table below shows the difference in avgerage cw and exam marks for white Vs Bame students 
+
+Average grade over past 5 years for assessment type (AT) and ethnicity
+```{r}
+full_data %>%
+  select(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC,MARK) %>%
+  group_by(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  tally(mean(MARK))  %>%
+  rename(Average_mark = n) %>%
+   spread(key = Ethnicity, value = Average_mark) %>%
+  mutate(gap = White - BAME)
+```
+The gap doesnt look huge, but it is bigger for coursework type assessments. However this is gap in average mark (student performance), not the number of students who achieved a top degree. Therefore, this is not relating to Bame awarding gap. Still interesting...
+
+Visualisation of above table
+Looking at average grade over past 5 years for AT and ethnicity
+```{r}
+full_data %>%
+  select(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC,MARK) %>%
+  group_by(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  tally(mean(MARK))  %>%
+  rename(Average_mark = n) %>%
+   #spread(key = Ethnicity, value = Average_mark) %>%
+  ggplot(aes(x=ASSESSMENT_COMPONENT_TYPE_DESC, y = Average_mark, fill = Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge')  + 
+  scale_fill_brewer(palette = "Accent") +
+  geom_text(aes(label = round(Average_mark, 2)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Average Mark By Assessment Type And Ethnicity") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Assessment Type') 
+  ylab('Average Mark')
+
+```
+This graph above is useful as it shows difference in average mark for each assessment type by ethnicity.
+However this research question pertains to the affect of assessment type on BAME awarding gaps.
+Therefore, instead of average marks, we need to compare the number of white vs BAME students who achieved top degrees and see if gap is greater for cw type assessments or coursework. 
+
+```{r}
+full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(Average_mark >=60) %>%
+  select(ID2, Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC, Average_mark) %>%
+  distinct() %>%
+  select(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  group_by(Ethnicity,ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  #select(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC, percentage) %>%
+  ggplot(aes(x=ASSESSMENT_COMPONENT_TYPE_DESC, y = percentage, fill = Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge')  + 
+  scale_fill_brewer(palette = "Set1") +
+  geom_text(aes(label = percentage), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Effect of assessment type on awarding gap") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Assessment Type') +
+  ylab('Percentage of students')
+```
+The results here are interesting. There is a 4% awarding gap for both ethnicities in each assessment type- this suggests exam do not lead to a wider awarding gap for the years 2017-2021.White students still performing better for both assessment types, but both ethnicities performing similar for assessment type. 
+
+```{r}
+#interaction plot of full dataset. 
+interaction.plot(x.factor = full_data$Ethnicity, #x-axis variable
+                 trace.factor = full_data$ASSESSMENT_COMPONENT_TYPE_DESC, #variable for lines
+                 response = full_data$MARK, #y-axis variable
+                 fun = median, #metric to plot
+                 ylab = "Average Mark",
+                 xlab = "Ethnicity",
+                 col = c("red", "blue"),
+                 lty = 1, #line type
+                 lwd = 2, #line width
+                 trace.label = "Assessment type")
+```
+
+# Statistical Analysis/Modelling
+
+## Mixed model 1
+
+```{r}
+#Question 1:
+#	1.	What affect does the assessment type have on student performance?
+
+#fitting model
+mmodel1 <- lmer(MARK ~ ASSESSMENT_COMPONENT_TYPE_DESC * Ethnicity + PROGRAMME_PART + (1|ID2) + (1|MODULE_CODE), data = full_data)
+```
+
+```{r}
+#showing model results
+summary(mmodel1)
+```
+
+
+```{r}
+#interaction plot of model...
+
+plot_model(mmodel1, type = "pred", terms = c("Ethnicity", "ASSESSMENT_COMPONENT_TYPE_DESC"))
+```
+
+```{r}
+anova(mmodel1)
+```
+Results from the anova test show each of these variables have significant effect on mark
+
+```{r}
+#effect size
+effectsize::eta_squared(mmodel1, partial = TRUE)
+```
+
+```{r}
+#emmeans is meant to be looked at for main effect.
+#in this case they were all significant so will do for each
+
+emmeans(mmodel1, list(pairwise~ASSESSMENT_COMPONENT_TYPE_DESC), adjust="tukey")
+
+#here comparison shows that there is a significant difference in mark when assessment type is cw compared to exam (p.value = <0.0001)
+```
+
+```{r}
+#computing effect sizes from emmean- firstly effect of assessment type
+#code adapted from https://search.r-project.org/CRAN/refmans/emmeans/html/eff_size.html
+VarCorr(mmodel1)
+totSD <- sqrt( 6.2315 + 5.0433 +  12.3898)
+emmV <- emmeans(mmodel1, ~ ASSESSMENT_COMPONENT_TYPE_DESC)
+eff_size(emmV, sigma = totSD, edf = 5)
+```
+
+```{r}
+emmeans(mmodel1, list(pairwise~Ethnicity), adjust="tukey")
+```
+
+```{r}
+#effect size of ethnicity
+emmV2 <- emmeans(mmodel1, ~ Ethnicity)
+eff_size(emmV2, sigma = totSD, edf = 5)
+```
+
+
+```{r}
+#effect size of programme part
+emmeans(mmodel1, list(pairwise~PROGRAMME_PART), adjust="tukey")
+#interesting as only some parts show sig difference on mark... some parts e.g. B,T, show no sig diff on mark?? wonder why?? is this correct interpretation??
+```
+
+```{r}
+#There was an interaction so computing emmeans for this
+emmeans(mmodel1, pairwise ~ Ethnicity | ASSESSMENT_COMPONENT_TYPE_DESC)
+```
+
+```{r}
+#effect size of interaction 
+emmV3 <- emmeans(mmodel1, ~ Ethnicity | ASSESSMENT_COMPONENT_TYPE_DESC)
+eff_size(emmV3, sigma = totSD, edf = 5)
+```
+
+
+## Evaluating mixed model-1 assumptions
+
+### linearity
+Usually, there are 3 model assumptions which we need to check; linearity, homoscedasticity and normality of residuals.
+We do not need to look at linearity as all variables in this model are categorical.
+
+### Homoscedasticity:
+```{r}
+#code adapted from https://ademos.people.uic.edu/Chapter18.html
+plot(mmodel1)
+```
+
+```{r}
+#boxplot of residuals to assess distribution of residuals
+boxplot(mmodel1@resp$wtres~full_data$ASSESSMENT_COMPONENT_TYPE_DESC)
+```
+
+```{r}
+boxplot(mmodel1@resp$wtres~full_data$Ethnicity)
+```
+
+```{r}
+boxplot(mmodel1@resp$wtres~full_data$PROGRAMME_PART)
+```
+Another way to check for homoscedasticity - (sd) residuals
+```{r}
+#ASSESSMENT TYPE
+mmodel1res<-mmodel1@resp$wtres
+#assessment type residuals in df
+mmodel1df<-data.frame(full_data$ASSESSMENT_COMPONENT_TYPE_DESC,mmodel1res) 
+names(mmodel1df)<-c("ASSESSMENT_COMPONENT_TYPE_DESC","residual")
+mmodel1df %>% group_by(ASSESSMENT_COMPONENT_TYPE_DESC)%>% summarise(sd(residual)) 
+```
+
+Since the highest sd is less than twice the lowest, that is fine (according to general rule of thumb for homoscedasticity across groups of a factor)
+
+Now we will check for the remaining variables...
+```{r}
+#Ethnicity
+mmodel1df2<-data.frame(full_data$Ethnicity,mmodel1res) 
+names(mmodel1df2)<-c("Ethnicity","residual")
+mmodel1df2 %>% group_by(Ethnicity)%>% summarise(sd(residual)) 
+
+#assumption satisfied 
+```
+
+```{r}
+#programme part
+mmodel1df3<-data.frame(full_data$PROGRAMME_PART,mmodel1res) 
+names(mmodel1df3)<-c("Programme_Part","residual")
+mmodel1df3 %>% group_by(Programme_Part)%>% summarise(sd(residual))
+
+#assumption met for this categorical variable as the largest residual is 15.3 and is less than 2* the smallest residual of D (9.20)
+```
+### normality of residuals
+
+```{r}
+qqnorm(mmodel1res)
+```
+
+### Confidence intervals
+```{r}
+#Interval estimates for mixed models
+#confint(mmodel1)
+```
+
+The above model is assessing effect of variables on student performance by looking at average marks. We want to look at awarding gaps so will categorise the marks into top degree and below and run a binomial model.
+
+## Generalised linear mixed model 1.2
+
+```{r}
+#creating binomial response variable
+full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  mutate(Grade = case_when(Average_mark >= 60 ~ 1,
+                           Average_mark < 60 ~ 0)) -> full_data3
+
+```
+
+```{r}
+#1.	What affect does the assessment type have on the BAME awarding gap?
+linmod<-glmer(as.factor(Grade) ~ ASSESSMENT_COMPONENT_TYPE_DESC * Ethnicity + PROGRAMME_PART + (1|ID2) + (1|MODULE_CODE), family="binomial",data = full_data3, nAGQ=0)
+```
+
+```{r}
+summary(linmod)
+```
+
+```{r}
+#calculating odds ratios
+se <- sqrt(diag(vcov(linmod)))
+# table of estimates with 95% CI
+(tab <- cbind(Est = fixef(linmod), LL = fixef(linmod) - 1.96 * se, UL = fixef(linmod) + 1.96 *
+    se))
+```
+
+```{r}
+#odd ratios
+exp(tab)
+```
+
+```{r}
+#evaluating model significance/quality 
+#Analysis of Deviance test
+Anova(linmod)
+```
+
+```{r}
+#interaction plot from model 1.2
+plot_model(linmod, type = "pred", terms = c("Ethnicity", "ASSESSMENT_COMPONENT_TYPE_DESC"))
+```
+
+```{r}
+emmeans(linmod, ~ ASSESSMENT_COMPONENT_TYPE_DESC, type = "response")
+```
+
+```{r}
+emmeans(linmod, ~ Ethnicity, type = "response")
+```
+
+
+```{r}
+emmeans(linmod, ~ Ethnicity | ASSESSMENT_COMPONENT_TYPE_DESC, type = "response")
+```
+
+This model does not require checking of assumptions
+
+# **Research Question 2**
+# **2.	What affect does the assessment type have on the performance of Non-White students (Namely Asian, Black, Chinese, and mixed) and the awarding gap?**
+
+Data wrangling:
+This research question required different categorisisation of ethnicities. 
+```{r}
+#categorising ethnicities into Asian, Black, Chinese, Mixed & White
+
+clean_ethnicity_data2[clean_ethnicity_data2 == "White - British"] <- "White"
+clean_ethnicity_data2[clean_ethnicity_data2 == "White - Irish"] <- "White"
+clean_ethnicity_data2[clean_ethnicity_data2 == "White - Scottish"] <- "White"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Other White Background"] <- "White"
+
+clean_ethnicity_data2[clean_ethnicity_data2 == "Asian Or Asian British - Bangladeshi"] <- "Asian"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Asian Or Asian British - Indian"] <- "Asian"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Asian Or Asian British - Pakistani"] <- "Asian"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Black Or Black British - African"] <- "Black"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Black Or Black British - Caribbean"] <- "Black"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Chinese"] <- "Chinese"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Mixed - White And Asian"] <- "Mixed"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Mixed - White And Black African"] <- "Mixed"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Mixed - White And Black Caribbean"] <- "Mixed"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Other Asian Background"] <- "Asian"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Other Black Background"] <- "Black"
+clean_ethnicity_data2[clean_ethnicity_data2 == "Other Mixed Background"] <- "Mixed"
+
+#remove not known,no information & info refused- as could be any ethnicity.
+#also removed gypsy as only 1 student- not good for representation
+#also removed other ethnic background- as not sure what category this relates to 
+
+clean_ethnicity_data2<-clean_ethnicity_data2[!(clean_ethnicity_data2$Ethnicity=="Information Refused" | clean_ethnicity_data2$Ethnicity=="Information Refused - OBSOLETE VALUE" | clean_ethnicity_data2$Ethnicity=="No Information" | clean_ethnicity_data2$Ethnicity=="Not Known" | clean_ethnicity_data2$Ethnicity=="Gypsy or Traveller" | clean_ethnicity_data2$Ethnicity=="Other Ethnic Background" | clean_ethnicity_data2$Ethnicity=="Arab") ,]
+```
+
+```{r}
+#converting to factors
+clean_ethnicity_data2 %>%
+  mutate_at(vars(Gender, Ethnicity), list(factor)) -> clean_ethnicity_data2
+
+summary(clean_ethnicity_data2)
+```
+
+```{r}
+#Ethnicity
+#Percentage of students belonging to each ethnicity after categorisation
+clean_ethnicity_data2 %>%
+  group_by(Ethnicity) %>%
+  summarise(counts = n()) %>%
+  mutate(freq = (counts / sum(counts))) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot( ., aes(x="", y=freq, fill=Ethnicity)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  theme_void() +
+  geom_text(aes(label = percentage), color = "white", position = position_stack(vjust = 0.5), size = 2.5) +
+  scale_fill_brewer(palette = "Paired") +
+  ggtitle("Percentage of students in each ethnic category") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+Joining two datasets
+```{r}
+#JOIN ETHNIC DATA AND MARK DATA
+inner_join(clean_ethnicity_data2, clean_mark_data) -> full_data2
+print(distinct(full_data2))
+```
+
+
+## 2.1 Effect of Ethncicity (Non-White students) on student performance
+
+```{r}
+boxplot(MARK~Ethnicity, data = full_data2)
+```
+
+```{r}
+#Visualise effect of ethnicity on overall/mean mark between 2017-2021
+full_data2 %>%
+  select(Ethnicity, MARK) %>%
+  group_by(Ethnicity) %>%
+  tally(mean(MARK))  %>%
+  rename(Average_mark = n) %>%
+  ggplot(aes(x=Ethnicity, y = Average_mark, fill =Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Paired") +
+  geom_text(aes(label = round(Average_mark, 2)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Average Test Scores by Ethnicity between 2017-2021") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab('Average Mark') 
+```
+
+```{r}
+#looking at avg grade for each ethnicity type between 2017-2021
+full_data2 %>%
+  select(INSTANCE_ACADEMIC_YEAR, Ethnicity,MARK) %>%
+  group_by(INSTANCE_ACADEMIC_YEAR, Ethnicity) %>%
+  tally(mean(MARK)) %>%
+  rename(Average_mark = n) %>%
+  #spread(key = Ethnicity, value = Average_mark) %>%
+  ggplot(aes(x = INSTANCE_ACADEMIC_YEAR, y = Average_mark, col = Ethnicity)) +
+  geom_line() +
+  geom_point() +
+  ggtitle("Average grade for White vs BAME (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Academic Year') +
+  ylab('Average Mark') +
+  labs(col='Ethnicity') 
+```
+
+### Analysis of Non-white students Awarding Gap (2017-2021)
+
+```{r}
+#Visualising percentage of white vs BAME students achieving top degree (2017-2021)
+full_data2 %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(Average_mark >=60) %>%
+  select(ID2, Ethnicity, Average_mark) %>%
+  distinct() %>%
+  group_by(Ethnicity) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=Ethnicity, y = counts, fill =Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_text(aes(label = percentage), position = position_stack(vjust = 1.1), size = 3)  +
+  ggtitle("Percentage of white vs BAME students achieving top degree (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab('Number of students')
+```
+
+```{r}
+#BAME AWARDING GAP
+full_data2 %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  mutate(Grade = case_when(Average_mark >= 70 ~ "First Class",
+                           Average_mark >= 60 ~ "Upper Second Class Honour",
+                           Average_mark >= 50 ~ "Lower Second Class Honour",
+                           Average_mark >= 40 ~ "Third class/pass",
+                           Average_mark < 40 ~ "Fail")) %>%
+  group_by(Ethnicity, Grade) %>%
+  summarise(counts = n()) %>%
+  mutate(freq = (counts / sum(counts))) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=Ethnicity, y = freq, fill =Grade)) +
+  geom_bar(stat = 'identity') + 
+  coord_flip() +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_text(aes(label = percentage), position = position_stack(vjust = 0.5), size = 2.5) +
+  ggtitle("Distribution of degree outcomes by ethnic group (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Frequency", fill = "Degree Classification")
+```
+
+## 2.2 Analysing effect of assessment type on non white students performance and awarding gap
+
+```{r}
+full_data2 %>%
+  select(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC,MARK) %>%
+  group_by(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  tally(mean(MARK))  %>%
+  rename(Average_mark = n) %>%
+   #spread(key = Ethnicity, value = Average_mark) %>%
+  ggplot(aes(x=ASSESSMENT_COMPONENT_TYPE_DESC, y = Average_mark, fill = Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge')  + 
+  scale_fill_brewer(palette = "Set1") +
+  geom_text(aes(label = round(Average_mark, 2)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Average Mark By Assessment Type And Ethnicity") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Assessment Type') +
+  ylab('Average Mark')
+```
+
+Effect of assessment type on awarding gap for Non-white categorise. 
+```{r}
+full_data2 %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(Average_mark >=60) %>%
+  select(ID2, Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC, Average_mark) %>%
+  distinct() %>%
+  select(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  group_by(Ethnicity,ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  #select(Ethnicity, ASSESSMENT_COMPONENT_TYPE_DESC, percentage) %>%
+  ggplot(aes(x=ASSESSMENT_COMPONENT_TYPE_DESC, y = percentage, fill = Ethnicity)) +
+  geom_bar(stat = 'identity', position = 'dodge')  + 
+  scale_fill_brewer(palette = "Set1") +
+  geom_text(aes(label = percentage), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Effect of assessment type on awarding gap") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Assessment Type') +
+  ylab('Percentage of students')
+```
+
+```{r}
+interaction.plot(x.factor = full_data2$Ethnicity, #x-axis variable
+                 trace.factor = full_data2$ASSESSMENT_COMPONENT_TYPE_DESC, #variable for lines
+                 response = full_data2$MARK, #y-axis variable
+                 fun = median, #metric to plot
+                 ylab = "Mark",
+                 xlab = "Ethnicity",
+                 col = c("pink", "lightblue"),
+                 lty = 1, #line type
+                 lwd = 2, #line width
+                 trace.label = "Assessment type")
+```
+
+# Statistical Analysis
+
+## Mixed Model 2
+```{r}
+#Question 2:
+#	2.	What affect does the assessment type have on the performance of Non-White students (Namely Asian, Black, Chinese, and mixed)
+
+mmodel2<- lmer(MARK ~ ASSESSMENT_COMPONENT_TYPE_DESC * Ethnicity + PROGRAMME_PART + (1|ID2) + (1|MODULE_CODE), data = full_data2)
+
+```
+
+```{r}
+summary(mmodel2)
+#Full model results
+```
+
+```{r}
+#model 2 interaction plot
+plot_model(mmodel2, type = "pred", terms = c("Ethnicity", "ASSESSMENT_COMPONENT_TYPE_DESC"))
+```
+
+
+```{r}
+#Anova test
+anova(mmodel2)
+```
+
+Similar to RQ1, all variables hold a significant effect on student performance
+
+```{r}
+#effect size
+effectsize::eta_squared(mmodel2, partial = TRUE)
+```
+
+```{r}
+#emmeans is meant to be looked at for main effect, in this case they were all significant so will do for each
+emmeans(mmodel2, list(pairwise~ASSESSMENT_COMPONENT_TYPE_DESC), adjust="tukey")
+```
+
+```{r}
+emmeans(mmodel2, list(pairwise~Ethnicity), adjust="tukey")
+```
+
+```{r}
+emmeans(mmodel2, list(pairwise~PROGRAMME_PART), adjust="tukey")
+```
+
+```{r}
+#There was an interaction so need emmeans for this
+emmeans(mmodel2, pairwise ~ Ethnicity | ASSESSMENT_COMPONENT_TYPE_DESC)
+```
+
+## Evaluating mixed model 2 assumptions
+
+### Homodscedasticity 
+
+```{r}
+#plot of mixed model 2
+plot(mmodel2)
+```
+
+```{r}
+boxplot(mmodel2@resp$wtres~full_data2$ASSESSMENT_COMPONENT_TYPE_DESC)
+```
+
+```{r}
+boxplot(mmodel2@resp$wtres~full_data2$Ethnicity)
+```
+
+```{r}
+boxplot(mmodel2@resp$wtres~full_data2$PROGRAMME_PART)
+```
+Another way to check for homeoscedasticity - (sd) residuals
+```{r}
+#ASSESSMENT TYPE
+mmodel2res<-mmodel2@resp$wtres
+#assessment type residuals in df
+mmodel2df<-data.frame(full_data2$ASSESSMENT_COMPONENT_TYPE_DESC,mmodel2res) 
+names(mmodel2df)<-c("ASSESSMENT_COMPONENT_TYPE_DESC","residual")
+mmodel2df %>% group_by(ASSESSMENT_COMPONENT_TYPE_DESC)%>% summarise(sd(residual)) 
+```
+The assumption is met because highest sd is less than twice the lowest. 
+```{r}
+#Ethnicity
+mmodel2df2<-data.frame(full_data2$Ethnicity,mmodel2res) 
+names(mmodel2df2)<-c("Ethnicity","residual")
+mmodel2df2 %>% group_by(Ethnicity)%>% summarise(sd(residual)) 
+```
+Again, the assumption is met. 
+
+```{r}
+#Programme part
+mmodel2df3<-data.frame(full_data2$PROGRAMME_PART,mmodel2res) 
+names(mmodel2df3)<-c("Programme_Part","residual")
+mmodel2df3 %>% group_by(Programme_Part)%>% summarise(sd(residual))
+```
+Assumption satisfied again..
+
+Moving onto checking the residuals of the model are normally distributed.
+
+### Normality of residuals
+
+```{r}
+#now check for residuals for mmodel2
+qqnorm(mmodel2res)
+```
+### Confidence Intervals
+
+```{r}
+#confint(mmodel2)
+```
+
+# **Research Question 3**
+# **3. Is there a link between assessment type, gender and student achievement?**
+
+Data set for this question will be full_data data set as already includes Gender data. Created this in preliminary analysis.
+
+## 3.1 Effect of Gender on student performance
+
+Distribution of Marks of Male & Female students (2017-2021)
+
+```{r}
+boxplot(MARK~Gender, data = full_data)
+```
+Below is bar chart showing of Gender of ethnicity on mean mark between 2017-2021
+
+```{r}
+#Visualise effect of ethnicity on overall/mean mark between 2017-2021
+full_data %>%
+  select(Gender, MARK) %>%
+  group_by(Gender) %>%
+  tally(mean(MARK))  %>%
+  rename(Average_mark = n) %>%
+  ggplot(aes(x=Gender, y = Average_mark, fill =Gender)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Paired") +
+  geom_text(aes(label = round(Average_mark, 2)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Average Test Scores by Gender between 2017-2021") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab('Average Mark') 
+```
+
+```{r}
+#looking at avg grade for each ethnicity type between 2017-2021
+full_data %>%
+  select(INSTANCE_ACADEMIC_YEAR, Gender,MARK) %>%
+  group_by(INSTANCE_ACADEMIC_YEAR, Gender) %>%
+  tally(mean(MARK)) %>%
+  rename(Average_mark = n) %>%
+  #spread(key = Ethnicity, value = Average_mark) %>%
+  ggplot(aes(x = INSTANCE_ACADEMIC_YEAR, y = Average_mark, col = Gender)) +
+  geom_line() +
+  geom_point() +
+  ggtitle("Average grade for Men vs Women (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Academic Year') +
+  ylab('Average Mark') +
+  labs(col='Gender') 
+```
+
+### Analysis of Gender Awarding Gap (2017-2021)
+
+```{r}
+#Visualising percentage of white vs BAME students achieving top degree (2017-2021)
+full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(MARK >=60) %>%
+  select(ID2, Gender, Average_mark) %>%
+  distinct() %>%
+  group_by(Gender) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=Gender, y = counts, fill =Gender)) +
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_text(aes(label = percentage), position = position_stack(vjust = 1.1), size = 3)  +
+  ggtitle("Number of Men vs Women achieving top degree (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab('Number of students')
+```
+This is very interesting as more men are being awarded top degrees but on average woman perform better.
+This may be because more men in this dataset then woman.
+So, below is a better comparison, looking at distribution of grades.
+```{r}
+#Gender AWARDING GAP
+full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  mutate(Grade = case_when(Average_mark >= 70 ~ "First Class",
+                           Average_mark >= 60 ~ "Upper Second Class Honour",
+                           Average_mark >= 50 ~ "Lower Second Class Honour",
+                           Average_mark >= 40 ~ "Third class/pass",
+                           Average_mark < 40 ~ "Fail")) %>%
+  group_by(Gender, Grade) %>%
+  summarise(counts = n()) %>%
+  mutate(freq = (counts / sum(counts))) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  ggplot(aes(x=Gender, y = freq, fill =Grade)) +
+  geom_bar(stat = 'identity') + 
+  coord_flip() +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_text(aes(label = percentage), position = position_stack(vjust = 0.5), size = 2.5) +
+  ggtitle("Distribution of degree outcomes by gender (2017-2021)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Frequency", fill = "Degree Classification")
+```
+This graph is much better at showing what is actually going on in regards to what degree classification students are being awarded.
+This makes more sense now...
+This is showing 33.5% of woman students are getting a first in comparison to male students
+So females do perform better/ more females are awarded a top degree in comparison to male students, but when looking at overall degree outcomes, more males are getting top degree because there are more male students at university.
+
+## 3.2 Analysing effect of assessment type and gender on student performance and awarding gap
+
+```{r}
+full_data %>%
+  select(Gender, ASSESSMENT_COMPONENT_TYPE_DESC,MARK) %>%
+  group_by(Gender, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  tally(mean(MARK))  %>%
+  rename(Average_mark = n) %>%
+  ggplot(aes(x=ASSESSMENT_COMPONENT_TYPE_DESC, y = Average_mark, fill = Gender)) +
+  geom_bar(stat = 'identity', position = 'dodge')  + 
+  scale_fill_brewer(palette = "Set1") +
+  geom_text(aes(label = round(Average_mark, 2)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Average Mark By Assessment Type And Gender") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Assessment Type') +
+  ylab('Average Mark')
+```
+This shows women perform better than men in both assessment types, but the difference by assessment type seems similar... So one gender does not perform significantly different than other in one assessment type. 
+
+```{r}
+  full_data %>%
+  group_by(ID2) %>%
+  mutate(Average_mark = mean(MARK)) %>%
+  filter(Average_mark >=60) %>%
+  select(ID2, Gender, ASSESSMENT_COMPONENT_TYPE_DESC, Average_mark) %>%
+  distinct() %>%
+  select(Gender, ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  group_by(Gender,ASSESSMENT_COMPONENT_TYPE_DESC) %>%
+  summarise(counts = n()) %>%
+  mutate(percentage = scales::label_percent()(counts / sum(counts))) %>%
+  #select(Gender, ASSESSMENT_COMPONENT_TYPE_DESC, percentage) %>%
+  ggplot(aes(x=ASSESSMENT_COMPONENT_TYPE_DESC, y = percentage, fill = Gender)) +
+  geom_bar(stat = 'identity', position = 'dodge')  + 
+  scale_fill_brewer(palette = "Set1") +
+  geom_text(aes(label = percentage), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Effect of assessment type on gender awarding gap") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab('Assessment Type') +
+  ylab('Percentage of students')
+```
+5% diff in each assessment type...
+Doesnt look like exams are leading to a wider gender awarding gap. 
+Difference in performance for exams is same as difference for coursework....
+
+```{r}
+interaction.plot(x.factor = full_data$Gender, #x-axis variable
+                 trace.factor = full_data$ASSESSMENT_COMPONENT_TYPE_DESC, #variable for lines
+                 response = full_data$MARK, #y-axis variable
+                 fun = median, #metric to plot
+                 ylab = "Mark",
+                 xlab = "Ethnicity",
+                 col = c("green", "blue"),
+                 lty = 1, #line type
+                 lwd = 2, #line width
+                 trace.label = "Assessment type")
+```
+
+# Statistical Analysis
+
+## Mixed Model 3
+
+```{r}
+# **Research Question 3**
+# **3. Is there a link between assessment type, gender and student achievement?**
+
+mmodel3<- lmer(MARK ~ ASSESSMENT_COMPONENT_TYPE_DESC * Gender + PROGRAMME_PART + (1|ID2) + (1|MODULE_CODE), data = full_data)
+```
+
+```{r}
+summary(mmodel3)
+```
+
+This is interesting...shows gap in AT smaller for woman compared to men. 
+Also average cw grade very similar for men and woman
+And woman perform better in exams compared to men
+And woman perform better in exams compared to men... 
+
+```{r}
+#interaction plot of mixed model 3
+plot_model(mmodel3, type = "pred", terms = c("Gender", "ASSESSMENT_COMPONENT_TYPE_DESC"))
+```
+
+```{r}
+anova(mmodel3)
+```
+
+Again, similar to RQ1 & RQ2, all variables hold a significant effect on student performance
+
+```{r}
+#effect size
+effectsize::eta_squared(mmodel3, partial = TRUE)
+```
+
+```{r}
+#emmeans is meant to be looked at for main effect in this case they were all significant so will do for each??
+
+emmeans(mmodel3, list(pairwise~ASSESSMENT_COMPONENT_TYPE_DESC), adjust="tukey")
+```
+
+```{r}
+emmeans(mmodel3, list(pairwise~Gender), adjust="tukey")
+```
+
+```{r}
+emmeans(mmodel3, list(pairwise~PROGRAMME_PART), adjust="tukey")
+```
+
+```{r}
+#There was an interaction so need emmeans for this
+emmeans(mmodel3, pairwise ~ Gender | ASSESSMENT_COMPONENT_TYPE_DESC)
+```
+
+## Evaluating mixed model-3 assumptions
+
+Do not need to check linearity as each variable is categorical.
+
+### Homodscedasticity
+
+```{r}
+#plot of mixed model 3 residuals
+plot(mmodel3)
+```
+
+```{r}
+boxplot(mmodel3@resp$wtres~full_data$ASSESSMENT_COMPONENT_TYPE_DESC)
+```
+
+```{r}
+boxplot(mmodel3@resp$wtres~full_data$Gender)
+```
+
+```{r}
+boxplot(mmodel3@resp$wtres~full_data$PROGRAMME_PART)
+```
+
+Another way to check for homeoscedasticity - (sd) residuals
+
+```{r}
+#ASSESSMENT TYPE
+mmodel3res<-mmodel3@resp$wtres
+#assessment type residuals in df
+mmodel3df<-data.frame(full_data$ASSESSMENT_COMPONENT_TYPE_DESC,mmodel3res) 
+names(mmodel3df)<-c("ASSESSMENT_COMPONENT_TYPE_DESC","residual")
+mmodel3df %>% group_by(ASSESSMENT_COMPONENT_TYPE_DESC)%>% summarise(sd(residual))
+```
+
+```{r}
+#Gender
+mmodel3df2<-data.frame(full_data$Gender,mmodel3res) 
+names(mmodel3df2)<-c("Gender","residual")
+mmodel3df2 %>% group_by(Gender)%>% summarise(sd(residual)) 
+```
+
+```{r}
+#Programme part
+mmodel3df3<-data.frame(full_data$PROGRAMME_PART,mmodel3res) 
+names(mmodel3df3)<-c("Programme_Part","residual")
+mmodel3df3 %>% group_by(Programme_Part)%>% summarise(sd(residual))
+```
+Assumptions met for all variables
+
+### Normality of residuals
+
+```{r}
+qqnorm(mmodel3res)
+```
+All assumptions for mixed model 3 met. 
+
+### Confidence Intervals
+
+```{r}
+#confint(mmodel3)
+```
+
